@@ -29,11 +29,6 @@ const appConfig = {
   token: process.env.TOKEN,
   clientId: process.env.CLIENT_ID,
   guildId: process.env.GUILD_ID,
-
-  shop: {
-    ...botConfig.shop,
-    ...shop,
-  },
 },
 
   // PostgreSQL configuration - Primary production database
