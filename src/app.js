@@ -380,7 +380,7 @@ try {
   process.exit(1);
 }
 
-export default TitanBot;
+export default new TitanBot();
 
 
 
