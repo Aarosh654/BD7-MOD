@@ -5,12 +5,14 @@ import { fileURLToPath } from 'url';
 import { getTraceContext } from './traceContext.js';
 
 const { createLogger, format, transports } = winston;
-const { combine, timestamp, printf, colorize, errors, json } = format;
+const { combine, timestamp, printf, colorize, errors } = format;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
 const validLogLevels = new Set(['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly']);
 const defaultLogLevel = process.env.NODE_ENV === 'production' ? 'info' : 'debug';
+
 const logLevelAliases = {
   warning: 'warn',
   warnings: 'warn',
@@ -18,6 +20,7 @@ const logLevelAliases = {
   err: 'error',
   information: 'info',
 };
+
 const rawRequestedLogLevel = process.env.LOG_LEVEL?.toLowerCase().trim();
 const requestedLogLevel = logLevelAliases[rawRequestedLogLevel] || rawRequestedLogLevel;
 
@@ -25,11 +28,13 @@ const resolvedLogLevel = validLogLevels.has(requestedLogLevel)
   ? requestedLogLevel
   : defaultLogLevel;
 
-const pendingInvalidLevelWarning = requestedLogLevel && !validLogLevels.has(requestedLogLevel)
-  ? `[logger] Invalid LOG_LEVEL "${process.env.LOG_LEVEL}". Falling back to "${defaultLogLevel}".`
-  : null;
+const pendingInvalidLevelWarning =
+  requestedLogLevel && !validLogLevels.has(requestedLogLevel)
+    ? `[logger] Invalid LOG_LEVEL "${process.env.LOG_LEVEL}". Falling back to "${defaultLogLevel}".`
+    : null;
 
-const shouldPromoteUserFacingLogs = process.env.NODE_ENV === 'production' && resolvedLogLevel === 'warn';
+const shouldPromoteUserFacingLogs =
+  process.env.NODE_ENV === 'production' && resolvedLogLevel === 'warn';
 
 const LOG_SCHEMA_DEFAULTS = Object.freeze({
   event: 'application.log',
@@ -42,15 +47,12 @@ const LOG_SCHEMA_DEFAULTS = Object.freeze({
 
 const logFormat = printf(({ level, message, timestamp, stack, displayLevel }) => {
   const visibleLevel = displayLevel || level;
-  const logMessage = `[${timestamp}] [${visibleLevel}]: ${stack || message}`;
-  return logMessage;
+  return `[${timestamp}] [${visibleLevel}]: ${stack || message}`;
 });
 
 const attachTraceContext = format((info) => {
   const traceContext = getTraceContext();
-  if (!traceContext) {
-    return info;
-  }
+  if (!traceContext) return info;
 
   info.traceId = info.traceId || traceContext.traceId;
   info.guildId = info.guildId || traceContext.guildId;
@@ -62,38 +64,23 @@ const attachTraceContext = format((info) => {
 });
 
 function deriveErrorCode(info) {
-  if (info.errorCode) {
-    return info.errorCode;
-  }
-
-  if (typeof info.code === 'string' || typeof info.code === 'number') {
-    return String(info.code);
-  }
-
-  if (typeof info.type === 'string') {
-    return info.type;
-  }
-
+  if (info.errorCode) return info.errorCode;
+  if (typeof info.code === 'string' || typeof info.code === 'number') return String(info.code);
+  if (typeof info.type === 'string') return info.type;
   if (info.error && (typeof info.error.code === 'string' || typeof info.error.code === 'number')) {
     return String(info.error.code);
   }
-
   return null;
 }
 
 function normalizeEvent(info) {
-  if (typeof info.event === 'string' && info.event.trim()) {
-    return info.event;
-  }
+  if (typeof info.event === 'string' && info.event.trim()) return info.event;
 
-  const displayLevel = typeof info.displayLevel === 'string' ? info.displayLevel.toLowerCase().trim() : null;
-  if (displayLevel === 'startup') {
-    return 'system.startup';
-  }
+  const displayLevel =
+    typeof info.displayLevel === 'string' ? info.displayLevel.toLowerCase().trim() : null;
 
-  if (displayLevel === 'status') {
-    return 'system.status';
-  }
+  if (displayLevel === 'startup') return 'system.startup';
+  if (displayLevel === 'status') return 'system.status';
 
   return `log.${info.level || 'info'}`;
 }
@@ -108,6 +95,49 @@ const enforceLogSchema = format((info) => {
   return info;
 });
 
+// IMPORTANT: disable file logging on Vercel unless explicitly enabled
+const enableFileLogs = process.env.LOG_TO_FILE === 'true';
+
+const fileTransports = enableFileLogs
+  ? [
+      new transports.DailyRotateFile({
+        filename: path.join(__dirname, '../../logs/error-%DATE%.log'),
+        level: 'error',
+        maxSize: '20m',
+        maxFiles: '14d',
+        zippedArchive: true,
+      }),
+      new transports.DailyRotateFile({
+        filename: path.join(__dirname, '../../logs/combined-%DATE%.log'),
+        maxSize: '20m',
+        maxFiles: '7d',
+        zippedArchive: true,
+      }),
+    ]
+  : [];
+
+const exceptionHandlers = enableFileLogs
+  ? [
+      new transports.DailyRotateFile({
+        filename: path.join(__dirname, '../../logs/exceptions-%DATE%.log'),
+        maxSize: '20m',
+        maxFiles: '14d',
+        zippedArchive: true,
+      }),
+    ]
+  : [];
+
+const rejectionHandlers = enableFileLogs
+  ? [
+      new transports.DailyRotateFile({
+        filename: path.join(__dirname, '../../logs/rejections-%DATE%.log'),
+        maxSize: '20m',
+        maxFiles: '14d',
+        zippedArchive: true,
+      }),
+    ]
+  : [];
+
 const logger = createLogger({
   level: resolvedLogLevel,
   format: combine(
@@ -118,41 +148,14 @@ const logger = createLogger({
     format.json()
   ),
   defaultMeta: { service: 'titan-bot' },
-  transports: [
-    new transports.DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/error-%DATE%.log'),
-      level: 'error',
-      maxSize: '20m',
-      maxFiles: '14d',
-      zippedArchive: true,
-    }),
-    new transports.DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/combined-%DATE%.log'),
-      maxSize: '20m',
-      maxFiles: '7d',
-      zippedArchive: true,
-    }),
-  ],
-  exceptionHandlers: [
-    new transports.DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/exceptions-%DATE%.log'),
-      maxSize: '20m',
-      maxFiles: '14d',
-      zippedArchive: true,
-    }),
-  ],
-  rejectionHandlers: [
-    new transports.DailyRotateFile({
-      filename: path.join(__dirname, '../../logs/rejections-%DATE%.log'),
-      maxSize: '20m',
-      maxFiles: '14d',
-      zippedArchive: true,
-    }),
-  ],
+  transports: fileTransports,
+  exceptionHandlers,
+  rejectionHandlers,
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new transports.Console({
+// Always log to console (works on Vercel)
+logger.add(
+  new transports.Console({
     format: combine(
       colorize(),
       timestamp({ format: 'HH:mm:ss' }),
@@ -160,18 +163,8 @@ if (process.env.NODE_ENV !== 'production') {
       logFormat
     ),
     level: resolvedLogLevel,
-  }));
-} else {
-  logger.add(new transports.Console({
-    format: combine(
-      colorize(),
-      timestamp({ format: 'HH:mm:ss' }),
-      errors({ stack: true }),
-      logFormat
-    ),
-    level: resolvedLogLevel,
-  }));
-}
+  })
+);
 
 logger.stream = {
   write: (message) => {
@@ -184,41 +177,20 @@ if (pendingInvalidLevelWarning) {
 }
 
 function startupLog(message) {
-  if (shouldPromoteUserFacingLogs) {
-    logger.log({
-      level: 'warn',
-      message,
-      displayLevel: 'startup',
-    });
-    return;
-  }
-
   logger.log({
-    level: 'info',
+    level: shouldPromoteUserFacingLogs ? 'warn' : 'info',
     message,
     displayLevel: 'startup',
   });
 }
 
 function shutdownLog(message) {
-  if (shouldPromoteUserFacingLogs) {
-    logger.log({
-      level: 'warn',
-      message,
-      displayLevel: 'status',
-    });
-    return;
-  }
-
   logger.log({
-    level: 'info',
+    level: shouldPromoteUserFacingLogs ? 'warn' : 'info',
     message,
     displayLevel: 'status',
   });
 }
 
 export { logger, startupLog, shutdownLog };
-
 export default logger;
-
-
