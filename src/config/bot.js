@@ -467,14 +467,13 @@ export const botConfig = {
 export function validateConfig(config) {
   const errors = [];
 
-  
   if (process.env.NODE_ENV !== 'production') {
     logger.debug('Environment variables check:');
     logger.debug('DISCORD_TOKEN exists:', !!process.env.DISCORD_TOKEN);
     logger.debug('TOKEN exists:', !!process.env.TOKEN);
     logger.debug('CLIENT_ID exists:', !!process.env.CLIENT_ID);
     logger.debug('GUILD_ID exists:', !!process.env.GUILD_ID);
-    logger.debug('POSTGRES_HOST exists:', !!process.env.POSTGRES_HOST);
+    logger.debug('DATABASE_URL exists:', !!process.env.DATABASE_URL);
     logger.debug('NODE_ENV:', process.env.NODE_ENV);
   }
 
@@ -486,22 +485,23 @@ export function validateConfig(config) {
     errors.push("Client ID is required (CLIENT_ID environment variable)");
   }
 
-  
   if (process.env.NODE_ENV === 'production') {
-  if (!process.env.DATABASE_URL) {
-    errors.push("Database URL is required (DATABASE_URL environment variable)");
+    if (!process.env.DATABASE_URL) {
+      errors.push("Database URL is required (DATABASE_URL environment variable)");
+    }
   }
+
+  return errors;
 }
 
-
 const configErrors = validateConfig(botConfig);
+
 if (configErrors.length > 0) {
   logger.error("Bot configuration errors:", configErrors.join("\n"));
   if (process.env.NODE_ENV === "production") {
     process.exit(1);
   }
 }
-
 
 export const BotConfig = botConfig;
 
